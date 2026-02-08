@@ -3,21 +3,37 @@
 
 const CHANNEL = "REQUEST_MOCKER_V1";
 
-function safeSendMessage(message) {
-  return new Promise((resolve) => {
-    try {
-      // When the extension reloads/updates, existing content scripts may keep running briefly.
-      // Accessing chrome.runtime or sending messages can throw "Extension context invalidated".
-      if (!chrome?.runtime?.id) return resolve(null);
-      chrome.runtime.sendMessage(message, (response) => {
-        // If runtime is invalidated mid-flight, lastError will be set.
-        if (chrome.runtime?.lastError) return resolve(null);
-        resolve(response ?? null);
-      });
-    } catch {
-      resolve(null);
-    }
-  });
+let alive = true;
+
+function isContextInvalidatedError(err) {
+  const msg = String(err?.message || err || "");
+  return msg.includes("Extension context invalidated") || msg.includes("context invalidated");
+}
+
+function stopForwarder() {
+  if (!alive) return;
+  alive = false;
+  try {
+    window.removeEventListener("message", onPageMessage);
+  } catch {
+    // ignore
+  }
+}
+
+async function safeSendMessage(message) {
+  if (!alive) return null;
+  if (!chrome?.runtime?.id) {
+    stopForwarder();
+    return null;
+  }
+  try {
+    return await chrome.runtime.sendMessage(message);
+  } catch (e) {
+    // Happens when the extension is reloaded/updated while the page is open.
+    // Don't spam console or crash the page; just stop forwarding.
+    if (isContextInvalidatedError(e)) stopForwarder();
+    return null;
+  }
 }
 
 async function getState() {
@@ -31,13 +47,14 @@ function postToPage(payload) {
 }
 
 function onPageMessage(ev) {
+  if (!alive) return;
   if (ev.source !== window) return;
   const data = ev.data;
   if (!data || data.channel !== CHANNEL) return;
 
   if (data.type === "ROUTE_HIT") {
-    // Fire-and-forget; never throw on extension reload.
-    void safeSendMessage({
+    // Fire-and-forget; swallow context invalidation errors.
+    safeSendMessage({
       type: "ROUTE_HIT",
       payload: data.payload
     });
@@ -48,11 +65,13 @@ window.addEventListener("message", onPageMessage);
 
 // Send initial state as soon as possible.
 getState().then((state) => {
+  if (!alive) return;
   postToPage({ type: "STATE", state: { enabled: Boolean(state.enabled), routes: state.routes || [] } });
 });
 
 // Stream updates.
 chrome.storage.onChanged.addListener((changes, area) => {
+  if (!alive) return;
   if (area !== "local") return;
   const changed = changes["request-mocker:state"];
   if (!changed) return;

@@ -33,6 +33,14 @@ npm run build
 
 Vite outputs a Chrome-loadable extension bundle to `dist/`.
 
+### Package (zip for Chrome Web Store)
+
+```bash
+npm run package
+```
+
+This produces `request-mocker.zip` (upload this to the Chrome Web Store).
+
 ### Watch mode (rebuild on changes)
 
 ```bash

@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite build --watch",
-    "build": "vite build"
+    "icons": "node scripts/generate-icons.mjs",
+    "build": "npm run icons && vite build",
+    "package": "npm run build && cd dist && zip -r ../request-mocker.zip . -x \"**/.DS_Store\""
   },
   "dependencies": {
     "vue": "^3.5.13"
@@ -14,6 +16,7 @@
     "@vitejs/plugin-vue": "^5.2.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.5.3",
+    "sharp": "^0.33.5",
     "tailwindcss": "^3.4.17",
     "vite": "^6.1.0"
   }

@@ -73,10 +73,6 @@ function renderHeaders(obj) {
   if (!entries.length) return "";
   return entries.map(([k, v]) => `${k}: ${v}`).join("\n");
 }
-
-function getPathName(url) {
-  return `/${url.split('/').pop()}`;
-}
 </script>
 
 <template>
@@ -120,7 +116,7 @@ function getPathName(url) {
             No mocked requests yet. Open “Manage” to add a route.
           </div>
 
-          <div v-else class="mt-2 grid gap-2 overflow-auto pr-1 flex-1 min-h-0 w-full">
+          <div v-else class="mt-2 grid gap-2 overflow-auto pr-1 flex-1 min-h-0">
             <div
               v-for="ev in recentEvents"
               :key="String(ev.routeId) + String(ev.at)"
@@ -139,8 +135,8 @@ function getPathName(url) {
                     <Badge :variant="ev.ok ? 'success' : 'danger'">{{ ev.ok ? "MOCKED" : "ERROR" }}</Badge>
                     <Badge variant="outline">{{ ev.transport || "—" }}</Badge>
                   </div>
-                  <div class="mt-1 truncate font-mono text-[11px] text-slate-200 break-all w-32" :title="ev.url || ''">
-                    {{ getPathName(ev.url) || "—" }}
+                  <div class="mt-1 truncate font-mono text-[11px] text-slate-200 break-all max-w-full" :title="ev.url || ''">
+                    /{{ ev.url.split('/').pop() || "—" }}
                   </div>
                   <div class="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
                     <span class="break-all" :title="routeById.get(ev.routeId)?.match || ''">
@@ -216,13 +212,6 @@ function getPathName(url) {
 
         <div class="grid grid-cols-2 gap-2">
           <Button variant="outline" @click="openOptions" title="Open the full route management panel">Add / Edit routes</Button>
-          <Button
-            variant="secondary"
-            title="Quick tip: use match type Includes for api.com/test"
-            @click="openOptions"
-          >
-            Tips & Help
-          </Button>
         </div>
       </div>
     </div>
