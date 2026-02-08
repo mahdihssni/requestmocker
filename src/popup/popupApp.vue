@@ -210,9 +210,8 @@ function renderHeaders(obj) {
           </div>
         </Card>
 
-        <div class="grid grid-cols-2 gap-2">
-          <Button variant="outline" @click="openOptions" title="Open the full route management panel">Add / Edit routes</Button>
-        </div>
+        <Button variant="outline" @click="openOptions" title="Open the full route management panel">Add / Edit routes</Button>
+        
       </div>
     </div>
   </div>
