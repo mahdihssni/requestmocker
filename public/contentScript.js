@@ -1,19 +1,7 @@
-// Runs in extension isolated world. Injects the actual interceptor into the page
-// context and keeps it updated with route changes.
+// Runs in extension isolated world. Keeps the MAIN-world interceptor updated with
+// route changes and forwards monitoring events back to the background worker.
 
 const CHANNEL = "REQUEST_MOCKER_V1";
-
-function injectScript() {
-  try {
-    const el = document.createElement("script");
-    el.src = chrome.runtime.getURL("injected.js");
-    el.async = false;
-    (document.documentElement || document.head || document.body).appendChild(el);
-    el.remove();
-  } catch {
-    // If injection fails, we simply don't mock on this page.
-  }
-}
 
 async function getState() {
   const res = await chrome.runtime.sendMessage({ type: "GET_STATE" });
@@ -37,8 +25,6 @@ function onPageMessage(ev) {
     });
   }
 }
-
-injectScript();
 
 window.addEventListener("message", onPageMessage);
 

@@ -1,5 +1,5 @@
 // Runs in the page context (MAIN world). Intercepts fetch and XMLHttpRequest.
-// Receives configuration from the extension via window.postMessage.
+// Receives configuration from the extension via window.postMessage (from isolated contentScript.js).
 
 (function () {
   const CHANNEL = "REQUEST_MOCKER_V1";
@@ -10,6 +10,17 @@
   function normalizeUrl(u) {
     if (typeof u !== "string") return "";
     return u.trim();
+  }
+
+  function resolveToAbsolute(u) {
+    const s = normalizeUrl(u);
+    if (!s) return "";
+    try {
+      // Handles relative URLs like "/api/test" or "api/test"
+      return new URL(s, window.location.href).href;
+    } catch {
+      return s;
+    }
   }
 
   function buildMatcher(route) {
@@ -56,7 +67,6 @@
     const ct = route.contentType || "application/json; charset=utf-8";
     if (ct) headers.set("content-type", ct);
 
-    // Additional headers: stored as object {k:v}
     if (route.headers && typeof route.headers === "object") {
       for (const [k, v] of Object.entries(route.headers)) {
         if (!k) continue;
@@ -69,7 +79,6 @@
   function toBodyString(route) {
     const body = route.body ?? "";
     if (typeof body === "string") return body;
-    // If the UI stored non-string (shouldn't), serialize.
     try {
       return JSON.stringify(body);
     } catch {
@@ -81,7 +90,6 @@
     try {
       return new TextEncoder().encode(String(str ?? ""));
     } catch {
-      // Very old browsers only; Chrome supports TextEncoder.
       const s = String(str ?? "");
       const arr = new Uint8Array(s.length);
       for (let i = 0; i < s.length; i++) arr[i] = s.charCodeAt(i) & 0xff;
@@ -100,7 +108,6 @@
       try {
         return { responseText: text, response: JSON.parse(text) };
       } catch {
-        // Mirror typical browser behavior: response is null when JSON parse fails.
         return { responseText: text, response: null };
       }
     }
@@ -112,7 +119,6 @@
       const type = String(contentType || "application/octet-stream");
       return { responseText: "", response: new Blob([String(bodyStr ?? "")], { type }) };
     }
-    // document / ms-stream / unknown: return text
     return { responseText: String(bodyStr ?? ""), response: String(bodyStr ?? "") };
   }
 
@@ -133,19 +139,20 @@
   const originalFetch = window.fetch ? window.fetch.bind(window) : null;
 
   async function mockFetch(input, init) {
-    const url = typeof input === "string" ? input : input?.url;
+    const rawUrl = typeof input === "string" ? input : input?.url;
+    const absUrl = resolveToAbsolute(rawUrl);
     const method = (init?.method || (typeof input !== "string" ? input?.method : null) || "GET").toUpperCase();
-    const route = findRoute(url, method);
+    const route = findRoute(absUrl || rawUrl, method);
     if (!route) return originalFetch(input, init);
 
     try {
       const status = Number(route.status || 200);
       const headers = makeHeaders(route);
       const bodyStr = toBodyString(route);
-      notifyHit(route.id, String(url || ""), true, null);
+      notifyHit(route.id, String(absUrl || rawUrl || ""), true, null);
       return new Response(bodyStr, { status, headers });
     } catch (e) {
-      notifyHit(route.id, String(url || ""), false, e);
+      notifyHit(route.id, String(absUrl || rawUrl || ""), false, e);
       throw e;
     }
   }
@@ -200,13 +207,8 @@
     if (typeof handler === "function") try { handler.call(this, evt); } catch {}
   };
 
-  MockedXHR.prototype.open = function () {
-    // no-op; open already captured in wrapper.
-  };
-
-  MockedXHR.prototype.setRequestHeader = function () {
-    // ignored for mocked requests
-  };
+  MockedXHR.prototype.open = function () {};
+  MockedXHR.prototype.setRequestHeader = function () {};
 
   MockedXHR.prototype.getResponseHeader = function (name) {
     const headers = makeHeaders(this._route);
@@ -241,6 +243,7 @@
         const headers = makeHeaders(route);
         const contentType = headers.get("content-type") || route.contentType || "";
         const computed = computeXhrResponse(bodyStr, this.responseType, contentType);
+
         this.readyState = 4;
         this.status = Number(route.status || 200);
         this.statusText = String(route.statusText || "");
@@ -257,7 +260,6 @@
       }
     };
 
-    // readyState transitions (minimal)
     this.readyState = 2;
     this._emit("readystatechange");
     this.readyState = 3;
@@ -267,10 +269,6 @@
     else queueMicrotask(finish);
   };
 
-  MockedXHR.prototype.setTimeout = function (ms) {
-    this._timeout = Number(ms || 0);
-  };
-
   function XHRWrapper() {
     this._xhr = null;
     this._mock = null;
@@ -278,7 +276,6 @@
     this._stash = Object.create(null);
     this._listeners = new Map();
 
-    // passthrough event handlers
     this.onreadystatechange = null;
     this.onload = null;
     this.onerror = null;
@@ -291,7 +288,8 @@
   };
 
   XHRWrapper.prototype.open = function (method, url, async) {
-    this._opened = { method: String(method || "GET"), url: String(url || ""), async: async !== false };
+    const absUrl = resolveToAbsolute(url);
+    this._opened = { method: String(method || "GET"), url: absUrl || String(url || ""), async: async !== false };
     const route = findRoute(this._opened.url, this._opened.method);
     if (route) {
       this._mock = new MockedXHR(route, this._opened.url, this._opened.method);
@@ -302,24 +300,18 @@
       this._xhr.open(method, url, async);
     }
 
-    // Apply stashed properties set before open()
     const t = this._target();
     if (t) {
       for (const [k, v] of Object.entries(this._stash)) {
         try {
           t[k] = v;
-        } catch {
-          // ignore
-        }
+        } catch {}
       }
-      // Apply listeners added before open()
       for (const [type, set] of this._listeners.entries()) {
         for (const cb of set) {
           try {
             t.addEventListener?.(type, cb);
-          } catch {
-            // ignore
-          }
+          } catch {}
         }
       }
     }
@@ -390,7 +382,6 @@
     return "";
   };
 
-  // Proxy commonly used properties
   [
     "readyState",
     "responseType",
@@ -428,7 +419,6 @@
     if (!payload || payload.type !== "STATE") return;
     const next = payload.state || {};
 
-    // Clone routes and clear cached matchers.
     const routes = Array.isArray(next.routes) ? next.routes.map((r) => ({ ...r, _matchFn: null })) : [];
     state = { enabled: Boolean(next.enabled), routes };
   });
