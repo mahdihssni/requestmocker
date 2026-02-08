@@ -30,11 +30,34 @@ export function upsertRouteStats(stats, routeId, hit) {
     events: []
   };
   const nextEvents = Array.isArray(cur.events) ? cur.events.slice(0) : [];
+  const safe = (s, max = 2048) => {
+    const str = typeof s === "string" ? s : s == null ? "" : String(s);
+    if (str.length <= max) return str;
+    return str.slice(0, max) + `\n…(truncated, ${str.length} chars total)`;
+  };
+  const safeHeaders = (obj) => {
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return {};
+    const out = {};
+    let n = 0;
+    for (const [k, v] of Object.entries(obj)) {
+      if (n >= 30) break;
+      out[safe(k, 80)] = safe(v, 300);
+      n += 1;
+    }
+    return out;
+  };
+
   nextEvents.unshift({
     at: now,
     url: hit?.url || null,
     ok: Boolean(hit?.ok),
-    error: hit?.ok ? null : (hit?.error || "Unknown error")
+    error: hit?.ok ? null : (hit?.error || "Unknown error"),
+    transport: hit?.transport || null,
+    method: hit?.method || null,
+    status: hit?.status != null ? Number(hit.status) : null,
+    requestHeaders: safeHeaders(hit?.requestHeaders),
+    responseHeaders: safeHeaders(hit?.responseHeaders),
+    responseBodyPreview: hit?.responseBodyPreview ? safe(hit.responseBodyPreview, 4096) : null
   });
   if (nextEvents.length > 20) nextEvents.length = 20;
   const next = {

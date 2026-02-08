@@ -122,12 +122,43 @@
     return { responseText: String(bodyStr ?? ""), response: String(bodyStr ?? "") };
   }
 
-  function notifyHit(routeId, url, ok, error) {
+  function trunc(s, max) {
+    const str = String(s ?? "");
+    if (str.length <= max) return str;
+    return str.slice(0, max) + `\n…(truncated, ${str.length} chars total)`;
+  }
+
+  function headersToObject(h, maxPairs = 30, maxValueLen = 300) {
+    try {
+      const out = {};
+      let n = 0;
+      h?.forEach?.((v, k) => {
+        if (n >= maxPairs) return;
+        out[String(k)] = trunc(v, maxValueLen);
+        n += 1;
+      });
+      return out;
+    } catch {
+      return {};
+    }
+  }
+
+  function normalizeHeadersInput(inputHeaders) {
+    try {
+      if (!inputHeaders) return new Headers();
+      if (inputHeaders instanceof Headers) return inputHeaders;
+      return new Headers(inputHeaders);
+    } catch {
+      return new Headers();
+    }
+  }
+
+  function notifyHit(payload) {
     window.postMessage(
       {
         channel: CHANNEL,
         type: "ROUTE_HIT",
-        payload: { routeId, url, ok: Boolean(ok), error: error ? String(error) : null }
+        payload
       },
       "*"
     );
@@ -149,10 +180,32 @@
       const status = Number(route.status || 200);
       const headers = makeHeaders(route);
       const bodyStr = toBodyString(route);
-      notifyHit(route.id, String(absUrl || rawUrl || ""), true, null);
+      const reqHeaders = (() => {
+        if (typeof input !== "string" && input?.headers) return input.headers;
+        return init?.headers;
+      })();
+      notifyHit({
+        routeId: route.id,
+        url: String(absUrl || rawUrl || ""),
+        ok: true,
+        error: null,
+        transport: "fetch",
+        method,
+        status,
+        requestHeaders: headersToObject(normalizeHeadersInput(reqHeaders)),
+        responseHeaders: headersToObject(headers),
+        responseBodyPreview: trunc(bodyStr, 2048)
+      });
       return new Response(bodyStr, { status, headers });
     } catch (e) {
-      notifyHit(route.id, String(absUrl || rawUrl || ""), false, e);
+      notifyHit({
+        routeId: route?.id || null,
+        url: String(absUrl || rawUrl || ""),
+        ok: false,
+        error: String(e?.message || e),
+        transport: "fetch",
+        method
+      });
       throw e;
     }
   }
@@ -249,12 +302,30 @@
         this.statusText = String(route.statusText || "");
         this.responseText = computed.responseText;
         this.response = computed.response;
-        notifyHit(route.id, String(url || ""), true, null);
+        notifyHit({
+          routeId: route.id,
+          url: String(url || ""),
+          ok: true,
+          error: null,
+          transport: "xhr",
+          method: String(this._method || "GET").toUpperCase(),
+          status: Number(route.status || 200),
+          requestHeaders: {}, // XHR request headers are not reliably readable; we keep it empty.
+          responseHeaders: headersToObject(headers),
+          responseBodyPreview: trunc(bodyStr, 2048)
+        });
         this._emit("readystatechange");
         this._emit("load");
         this._emit("loadend");
       } catch (e) {
-        notifyHit(route.id, String(url || ""), false, e);
+        notifyHit({
+          routeId: route?.id || null,
+          url: String(url || ""),
+          ok: false,
+          error: String(e?.message || e),
+          transport: "xhr",
+          method: String(this._method || "GET").toUpperCase()
+        });
         this._emit("error");
         this._emit("loadend");
       }

@@ -3,8 +3,25 @@
 
 const CHANNEL = "REQUEST_MOCKER_V1";
 
+function safeSendMessage(message) {
+  return new Promise((resolve) => {
+    try {
+      // When the extension reloads/updates, existing content scripts may keep running briefly.
+      // Accessing chrome.runtime or sending messages can throw "Extension context invalidated".
+      if (!chrome?.runtime?.id) return resolve(null);
+      chrome.runtime.sendMessage(message, (response) => {
+        // If runtime is invalidated mid-flight, lastError will be set.
+        if (chrome.runtime?.lastError) return resolve(null);
+        resolve(response ?? null);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 async function getState() {
-  const res = await chrome.runtime.sendMessage({ type: "GET_STATE" });
+  const res = await safeSendMessage({ type: "GET_STATE" });
   if (res?.ok) return res.state;
   return { enabled: true, routes: [] };
 }
@@ -19,7 +36,8 @@ function onPageMessage(ev) {
   if (!data || data.channel !== CHANNEL) return;
 
   if (data.type === "ROUTE_HIT") {
-    chrome.runtime.sendMessage({
+    // Fire-and-forget; never throw on extension reload.
+    void safeSendMessage({
       type: "ROUTE_HIT",
       payload: data.payload
     });

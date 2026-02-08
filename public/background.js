@@ -17,9 +17,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg || typeof msg !== "object") return;
 
     if (msg.type === "ROUTE_HIT") {
-      const { routeId, url, ok, error } = msg.payload || {};
+      const payload = msg.payload || {};
+      const { routeId, url, ok, error } = payload;
       const state = await getState();
-      const nextStats = upsertRouteStats(state.stats || {}, routeId, { url, ok, error });
+      const nextStats = upsertRouteStats(state.stats || {}, routeId, { ...payload, url, ok, error });
       await setState({ ...state, stats: nextStats });
       return;
     }
